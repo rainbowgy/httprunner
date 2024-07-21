@@ -89,7 +89,9 @@ class ConfigDB(object):
 
 class Config(object):
     def __init__(self, name: Text) -> None:
+        # [1]是返回当前调用栈的上一级调用信息，caller_frame.filename是当前代码的上一级的文件名，也就是用例文件名
         caller_frame = inspect.stack()[1]
+        filename = caller_frame.filename
         self.__name: Text = name
         self.__base_url: Text = ""
         self.__variables: VariablesMapping = {}
@@ -116,7 +118,9 @@ class Config(object):
         return self
 
     def export(self, *export_var_name: Text) -> "Config":
+        # list末尾添加新的元素export_var_name，list是有序集合，元素可重复
         self.__config.export.extend(export_var_name)
+        # set是无序集合，不包含重复元素，这里可以去重
         self.__config.export = list(set(self.__config.export))
         return self
 
@@ -133,6 +137,7 @@ class Config(object):
         return ConfigDB(self.__config)
 
     def __init(self) -> None:
+        # 笑死了，这是把__init__里忘记的事情在这给补上了吗
         self.__config.name = self.__name
         self.__config.base_url = self.__base_url
         self.__config.variables = copy.copy(self.__variables)

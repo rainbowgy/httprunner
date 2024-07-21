@@ -16,6 +16,7 @@ dolloar_regex_compile = re.compile(r"\$\$")
 # variable should start with a-zA-Z_
 variable_regex_compile = re.compile(r"\$\{([a-zA-Z_]\w*)\}|\$([a-zA-Z_]\w*)")
 # function notation, e.g. ${func1($var_1, $var_3)}
+# 两个捕获组，group[0]是([a-zA-Z_]\w*)，group[1]是([\$\w\.\-/\s=,]*)
 function_regex_compile = re.compile(r"\$\{([a-zA-Z_]\w*)\(([\$\w\.\-/\s=,]*)\)\}")
 
 
@@ -27,6 +28,7 @@ def parse_string_value(str_value: Text) -> Any:
          "$var" => "$var"
     """
     try:
+        # 不执行任何代码，安全的解析评估变量是否是python字面量，如数字、字符串、元组、列表、字典、布尔值、None 等
         return ast.literal_eval(str_value)
     except ValueError:
         return str_value
@@ -81,6 +83,7 @@ def regex_findall_variables(raw_string: Text) -> List[Text]:
 
     """
     try:
+        # 从开始的位置找到第一个$,返回索引
         match_start_position = raw_string.index("$", 0)
     except ValueError:
         return []
@@ -91,7 +94,8 @@ def regex_findall_variables(raw_string: Text) -> List[Text]:
         # Notice: notation priority
         # $$ > $var
 
-        # search $$
+        # search $$，$$value就不算，如果想要算这段代码就可以只是掉
+        # match只从指定的开始位置寻找是否匹配，开始位置没有则返回none
         dollar_match = dolloar_regex_compile.match(raw_string, match_start_position)
         if dollar_match:
             match_start_position = dollar_match.end()
@@ -100,8 +104,12 @@ def regex_findall_variables(raw_string: Text) -> List[Text]:
         # search variable like ${var} or $var
         var_match = variable_regex_compile.match(raw_string, match_start_position)
         if var_match:
+            # "\$\{([a-zA-Z_]\w*)\}|\$([a-zA-Z_]\w*)"里两个（）就是两个匹配组，第一组是${var1},第二组是$var2
+            # var_match.group(1)}=var1,var_match.group(2)=var2,同时肯定只符合一个，另一个是none
             var_name = var_match.group(1) or var_match.group(2)
             vars_list.append(var_name)
+            # print(f'匹配分组1:{var_match.group(1)}')
+            # print(f'匹配分组2:{var_match.group(2)}')
             match_start_position = var_match.end()
             continue
 
@@ -202,6 +210,7 @@ def parse_function_params(params: Text) -> Dict:
     """
     function_meta = {"args": [], "kwargs": {}}
 
+    # 去除首位空白字符，比如空格/制表符/换行符
     params_str = params.strip()
     if params_str == "":
         return function_meta
@@ -261,22 +270,29 @@ def get_mapping_function(
 
     """
     if function_name in functions_mapping:
+        # callable类型
         return functions_mapping[function_name]
 
     elif function_name in ["parameterize", "P"]:
+        # callable类型
         return loader.load_csv_file
 
     elif function_name in ["environ", "ENV"]:
+        # callable类型
         return utils.get_os_environ
 
     elif function_name in ["multipart_encoder", "multipart_content_type"]:
         # extension for upload test
         from httprunner.ext import uploader
-
+        # getattr是从uploader对象里获取function_name属性或者方法，然后返回一个函数引用或者属性引用，是一种动态调用方法
+        # 比如，uploader里定义了def upload_to_s3(file_path)，upload_function = getattr(uploader, 'upload_to_s3')
+        # 调用函数，upload_function('/path/to/your/file.txt')
         return getattr(uploader, function_name)
 
     try:
         # check if HttpRunner builtin functions
+        # 返回httprunner.builtin包下的所有模块的函数，这里是comparators,functions
+        # 感觉这里是不是也可以直接使用上面uploader的方式
         built_in_functions = loader.load_builtin_functions()
         return built_in_functions[function_name]
     except KeyError:
@@ -315,9 +331,12 @@ def parse_string(
 
     """
     try:
+        # 从字符串索引0开始查找$，返回第一次出现的位置
         match_start_position = raw_string.index("$", 0)
+        # 不包含match_start_position
         parsed_string = raw_string[0:match_start_position]
     except ValueError:
+        # 没出现$,则直接返回
         parsed_string = raw_string
         return parsed_string
 
@@ -333,20 +352,25 @@ def parse_string(
             parsed_string += "$"
             continue
 
+        # 替换可调用函数变量
         # search function like ${func($a, $b)}
         func_match = function_regex_compile.match(raw_string, match_start_position)
         if func_match:
             func_name = func_match.group(1)
+            # 返回一个可调用的函数或者属性，callable类型，除了debugtalk里的还有csv，httprunner.builtin,python builtins里的函数
             func = get_mapping_function(func_name, functions_mapping)
-
+            # 可调用函数参数
             func_params_str = func_match.group(2)
+            # 把参数整理分类成列表args和字典kwargs两种
             function_meta = parse_function_params(func_params_str)
             args = function_meta["args"]
             kwargs = function_meta["kwargs"]
+            # 进一步解析函数参数里的变量
             parsed_args = parse_data(args, variables_mapping, functions_mapping)
             parsed_kwargs = parse_data(kwargs, variables_mapping, functions_mapping)
 
             try:
+                # 调用函数
                 func_eval_value = func(*parsed_args, **parsed_kwargs)
             except Exception as ex:
                 logger.error(
@@ -368,10 +392,13 @@ def parse_string(
             match_start_position = func_match.end()
             continue
 
+
+        # 替换变量
         # search variable like ${var} or $var
         var_match = variable_regex_compile.match(raw_string, match_start_position)
         if var_match:
             var_name = var_match.group(1) or var_match.group(2)
+            # 目前只是直接匹配variables_mapping的变量，不包含debugtalk和env里的变量，不存在则报错
             var_value = get_mapping_variable(var_name, variables_mapping)
 
             if f"${var_name}" == raw_string or "${" + var_name + "}" == raw_string:
@@ -439,23 +466,30 @@ def parse_variables_mapping(
 
     parsed_variables: VariablesMapping = {}
 
+    # 判断解析过的变量和要解析的变量长度是否一致，解决了$foo1里调用$foo2,但是遍历是按照顺序的，解析foo1的时候还没解析foo2的问题
+    # 但是如果是互相调用，就会进入死循环，这里应该加一个循环限制
     while len(parsed_variables) != len(variables_mapping):
         for var_name in variables_mapping:
 
+            # 如果已经解析过则跳过
             if var_name in parsed_variables:
                 continue
 
             var_value = variables_mapping[var_name]
+            # 提取变量值里使用的变量$value/${value}
             variables = extract_variables(var_value)
 
             # check if reference variable itself
+            # 如果变量值里调用的变量是当前遍历的变量key自己，抛出异常
             if var_name in variables:
                 # e.g.
                 # variables_mapping = {"token": "abc$token"}
                 # variables_mapping = {"key": ["$key", 2]}
+                # 抛出异常，方法又没有向上抛出异常，走到这里会异常中断
                 raise exceptions.VariableNotFound(var_name)
 
             # check if reference variable not in variables_mapping
+            # 列表推导式，在变量值里提取的变量如果不在变量列表里，抛出异常
             not_defined_variables = [
                 v_name for v_name in variables if v_name not in variables_mapping
             ]
@@ -469,6 +503,7 @@ def parse_variables_mapping(
                     var_value, parsed_variables, functions_mapping
                 )
             except exceptions.VariableNotFound:
+                # 捕捉到可替换的变量里不存在，跳过当前循环
                 continue
 
             parsed_variables[var_name] = parsed_value

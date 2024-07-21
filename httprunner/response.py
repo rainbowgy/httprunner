@@ -91,16 +91,22 @@ def uniform_validator(validator):
             message = validator.get("message", "")
 
     elif len(validator) == 1:
-        # format2
+        # format2，{'eq': ['status_code', 201, "test"]}
+        # 提取验证关键词，比如eq
         comparator = list(validator.keys())[0]
+        # 提取验证的主要内容
         compare_values = validator[comparator]
 
+        # 判断验证内容格式，必须是list类型，长度2或者3
         if not isinstance(compare_values, list) or len(compare_values) not in [2, 3]:
             raise ParamsError(f"invalid validator: {validator}")
 
+        # 获取检查对象
         check_item = compare_values[0]
+        # 获取期望值
         expect_value = compare_values[1]
         if len(compare_values) == 3:
+            # 获取校验失败的失败信息
             message = compare_values[2]
         else:
             # len(compare_values) == 2
@@ -110,8 +116,10 @@ def uniform_validator(validator):
         raise ParamsError(f"invalid validator: {validator}")
 
     # uniform comparator, e.g. lt => less_than, eq => equals
+    # 匹配标准检查关键词
     assert_method = get_uniform_comparator(comparator)
 
+    # 返回格式化后的校验对象
     return {
         "check": check_item,
         "expect": expect_value,
@@ -141,9 +149,10 @@ class ResponseObjectBase(object):
             return {}
 
         extract_mapping = {}
+        # {'foo3': 'body.args.foo2'}
         for key, field in extractors.items():
             if "$" in field:
-                # field contains variable or function
+                # field contains variable or function，例子：body.args.foo2，先解析提取表达式里的变量
                 field = self.parser.parse_data(field, variables_mapping)
             field_value = self._search_jmespath(field)
             extract_mapping[key] = field_value
@@ -184,6 +193,12 @@ class ResponseObjectBase(object):
             if "validate_extractor" not in self.validation_results:
                 self.validation_results["validate_extractor"] = []
 
+            # 按照标准格式化校验信息return {
+            #         "check": check_item,
+            #         "expect": expect_value,
+            #         "assert": assert_method,
+            #         "message": message,
+            #     }
             u_validator = uniform_validator(v)
 
             # check item

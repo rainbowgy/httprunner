@@ -51,6 +51,8 @@ def main_run(extra_args) -> enum.IntEnum:
 
     extra_args_new.extend(testcase_path_list)
     logger.info(f"start to run tests with pytest. HttpRunner version: {__version__}")
+    # 每个测试用例都会继承httprunner，而它又继承sessionrunner，里面有test_start方法，pytest在匹配可执行测试用例时
+    # 实际上匹配的是request_with_variables_test.py文件下TestCaseRequestWithVariables类下继承的test_start方法
     return pytest.main(extra_args_new)
 
 

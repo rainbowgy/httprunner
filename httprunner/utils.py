@@ -129,6 +129,7 @@ ga4_client = GA4Client(GA4_MEASUREMENT_ID, GA4_API_SECRET, False)
 def set_os_environ(variables_mapping):
     """set variables mapping to os.environ"""
     for variable in variables_mapping:
+        # 设置环境变量到当前Python进程的环境中，这些环境变量只会在当前进程及其子进程中生效，不会影响父进程或其他并行的进程
         os.environ[variable] = variables_mapping[variable]
         logger.debug(f"Set OS environment variable: {variable}")
 
@@ -294,7 +295,11 @@ def merge_variables(
 
         step_new_variables[key] = value
 
+    # 对variables_to_be_overridden的key/value复制，彼此独立的字典对象，update不会影响variables_to_be_overridden
+    # 但也有特殊情况，如果value本身是个列表或者字典这种可变对象，那merged_variables copy的只是value的引用，更新它的值会彼此影响value
+    # 这里value是str不可变对象，因此copy是直接copy的值，更新也是更新自己的值，不会互相影响
     merged_variables = copy.copy(variables_to_be_overridden)
+    # key不存在则添加，存在则更新value
     merged_variables.update(step_new_variables)
     return merged_variables
 

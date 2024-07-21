@@ -33,7 +33,7 @@ class TestCaseRequestWithFunctions(HttpRunner):
             .with_jmespath("body.args.foo2", "foo3")
             .validate()
             .assert_equal("status_code", 200)
-            .assert_equal("body.args.foo1", "bar11")
+            .assert_equal("body.args.foo1", "bar11gy")
             .assert_equal("body.args.sum_v", "3")
             .assert_equal("body.args.foo2", "bar21")
         ),

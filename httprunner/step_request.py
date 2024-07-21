@@ -51,11 +51,12 @@ def call_hooks(
 
     for hook in hooks:
         if isinstance(hook, Text):
-            # format 1: ["${func()}"]
+            # format 1: ["${func()}"],不返回值的hook func
             logger.debug(f"call hook function: {hook}")
+            # call_hooks实际上是走parse_data逻辑来调用fun
             runner.parser.parse_data(hook, step_variables)
         elif isinstance(hook, Dict) and len(hook) == 1:
-            # format 2: {"var": "${func()}"}
+            # format 2: {"var": "${func()}"},有返回值的hook func
             var_name, hook_content = list(hook.items())[0]
             hook_content_eval = runner.parser.parse_data(hook_content, step_variables)
             logger.debug(
@@ -86,30 +87,42 @@ def run_step_request(runner: HttpRunner, step: TStep) -> StepResult:
     )
     start_time = time.time()
 
-    # parse
+    # 获取debugtalk里可调用函数
     functions = runner.parser.functions_mapping
+    # 把config里的变量和前面步骤里自定义的变量添加到当前步骤的变量里，并且重新解析一遍
+    # 变量优先级是step里定义的变量>前面步骤提取的变量>config里定义的变量
     step_variables = runner.merge_step_variables(step.variables)
     prepare_upload_step(step, step_variables, functions)
-    # parse variables
+    # parse variables，替换变量，感觉跟merge那一步重复了，或者prepare这里添加了新的？？
     step_variables = parse_variables_mapping(step_variables, functions)
 
     request_dict = step.request.dict()
     request_dict.pop("upload", None)
+    # 替换请求中的变量
     parsed_request_dict = runner.parser.parse_data(request_dict, step_variables)
 
+    # 移除header,如果header不存在，则返回{},存在则移除并返回
     request_headers = parsed_request_dict.pop("headers", {})
     # omit pseudo header names for HTTP/1, e.g. :authority, :method, :path, :scheme
+    # 重新添加之前的header
     request_headers = {
         key: request_headers[key] for key in request_headers if not key.startswith(":")
     }
+    # 当前时间秒转化为ms取整，并取后6位
     request_headers[
         "HRUN-Request-ID"
     ] = f"HRUN-{runner.case_id}-{str(int(time.time() * 1000))[-6:]}"
+    # 重新添加新的header
     parsed_request_dict["headers"] = request_headers
 
+    # 步骤variables里添加上解析好的完整请求信息
     step_variables["request"] = parsed_request_dict
 
     # setup hooks
+    # Hooks，中文直译为“钩子”或“挂钩”，它通常指的是在程序运行到某一特定时机时，会调用被注册到该时机的回调函数。
+    # 这种机制允许开发者在不修改原有代码逻辑的情况下，增加或修改某些功能。
+    # 在安全开发的过程中，Hook技术主要用于对程序的运行流程进行控制和拦截，对特定的消息或动作进行过滤。
+    # 其原理是在真正执行原始API之前，对程序流程进行拦截，使其先执行自定义的代码后，再执行原始API调用流程。
     if step.setup_hooks:
         call_hooks(runner, step.setup_hooks, step_variables, "setup request")
 
@@ -155,7 +168,9 @@ def run_step_request(runner: HttpRunner, step: TStep) -> StepResult:
             name="response details",
             attachment_type=ALLURE.attachment_type.TEXT,
         )
+    # 创建ResponseObjectBase实例resp_obj，包含resp，parser属性
     resp_obj = ResponseObject(resp, runner.parser)
+    # step_variables添加response
     step_variables["response"] = resp_obj
 
     # teardown hooks
@@ -164,10 +179,13 @@ def run_step_request(runner: HttpRunner, step: TStep) -> StepResult:
 
     # extract
     extractors = step.extract
+    # step_variables目前已经包含了config里的变量，step里的变量，还有request和response具体的信息
     extract_mapping = resp_obj.extract(extractors, step_variables)
+    # 把提取的变量保存在step_result模型里
     step_result.export_vars = extract_mapping
 
     variables_mapping = step_variables
+    # 把提取的变量更新在variables_mapping里，目前还包含上一步里config里的变量，step里的变量，还有request和response具体的信息
     variables_mapping.update(extract_mapping)
 
     # validate
@@ -385,6 +403,7 @@ class RequestWithOptionalArgs(IStep):
         self.__step = step
 
     def with_params(self, **params) -> "RequestWithOptionalArgs":
+        # self.__step.request返回Trequest module
         self.__step.request.params.update(params)
         return self
 
@@ -451,6 +470,7 @@ class RequestWithOptionalArgs(IStep):
 
 class RunRequest(object):
     def __init__(self, name: Text):
+        # 创建一个TStep模型实例self.__step
         self.__step = TStep(name=name)
 
     def with_variables(self, **variables) -> "RunRequest":

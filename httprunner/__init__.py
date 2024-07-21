@@ -19,7 +19,11 @@ from httprunner.step_thrift_request import (
     StepThriftRequestValidation,
 )
 
-
+'''
+用于指定在使用 from package import * 导入时应该导出的符号（类、函数、变量等）。
+在这里，它指定了导出 __version__、Config 和 Parameters 这三个符号。
+这样做是为了限制导出的符号，避免导入模块时导入过多不需要的内容。
+'''
 __all__ = [
     "__version__",
     "__description__",

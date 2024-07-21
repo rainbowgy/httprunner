@@ -23,6 +23,7 @@ from httprunner.step_thrift_request import (
 class Step(object):
     def __init__(
         self,
+        # 都继承自定义IStep接口，所以都实现了run方法
         step: Union[
             StepRequestValidation,
             StepRequestExtraction,
@@ -64,4 +65,5 @@ class Step(object):
         return self.__step.type()
 
     def run(self, runner: HttpRunner) -> StepResult:
+        # 根据step步骤最终返回都对象，调用对应的run方法，比如StepRequestValidation.run
         return self.__step.run(runner)

@@ -31,6 +31,7 @@ from httprunner.utils import LOGGER_FORMAT, merge_variables, ga4_client
 
 
 class SessionRunner(object):
+    # 用例文件在调用test_start()方法时，测试类的属性config和teststeps会覆盖这里的类属性，所以这里不需要初始化值
     config: Config
     teststeps: List[object]  # list of Step
 
@@ -53,22 +54,31 @@ class SessionRunner(object):
     # log
     __log_path: Text = ""
 
+    # 注意这里不是__init__，所以代码没报错
     def __init(self):
+        # self.config不另外赋值的情况下，会读取类属性config的值,而这个值又被测试文件的config实例覆盖
+        # struct()会返回self.__config,里面包含self.__config.name，self.__config.url/variables等
         self.__config = self.config.struct()
         self.__session_variables = self.__session_variables or {}
         self.__start_at = 0
         self.__duration = 0
         self.__is_referenced = self.__is_referenced or False
 
+        # 返回一个ProjectMeta模型，包含debugtalk_path/functions/RootDir/env/dot_env_path
+        # 分别代表debugtalk.py文件路径，文件里的fuction（动态导入过），文件所在目录，目录下的.env键值对，和路径
         self.__project_meta = self.__project_meta or load_project_meta(
-            self.__config.path
+            self.__config.path  #  还记得吗，这里的path是用例脚本py文件绝对路径
+            # '/Users/guoyan/work/pythonProject/httprunner/examples/postman_echo/request_methods/request_with_variables_test.py'
         )
+        # 生成随机 UUID，唯一标识符
         self.case_id = self.case_id or str(uuid.uuid4())
         self.root_dir = self.root_dir or self.__project_meta.RootDir
         self.__log_path = os.path.join(self.root_dir, "logs", f"{self.case_id}.run.log")
 
         self.__step_results = self.__step_results or []
+        # 继承requests.Session，初始化SessionData模型，including request, response, validators and stat data
         self.session = self.session or HttpSession()
+        # 把function_mapping赋值给self.parser实例
         self.parser = self.parser or Parser(self.__project_meta.functions)
 
     def with_session(self, session: HttpSession) -> "SessionRunner":
@@ -91,6 +101,7 @@ class SessionRunner(object):
         return self
 
     def with_export(self, export: List[Text]) -> "SessionRunner":
+        # RunTestCase.export
         self.__export = export
         return self
 
@@ -103,13 +114,16 @@ class SessionRunner(object):
         return self
 
     def __parse_config(self, param: Dict = None) -> None:
-        # parse config variables
+        # parse config variables，前面step提取的变量更新到config里，或者用例1调用用例2时，执行用例2，会把用例1的config和step变量
+        # 更新在这个session里带进来，session的优先级更大
         self.__config.variables.update(self.__session_variables)
         if param:
             self.__config.variables.update(param)
+            # parse_variables_mapping里捕捉了异常
         self.__config.variables = self.parser.parse_variables(self.__config.variables)
 
         # parse config name
+        # 要替换的变量在config.variable里没有，会抛出异常，这里没有捕捉异常会直接中断程序报错
         self.__config.name = self.parser.parse_data(
             self.__config.name, self.__config.variables
         )
@@ -121,9 +135,12 @@ class SessionRunner(object):
 
     def get_export_variables(self) -> Dict:
         # override testcase export vars with step export
+        # self.__export是testcase_step里的export
         export_var_names = self.__export or self.__config.export
         export_vars_mapping = {}
         for var_name in export_var_names:
+            # 从__session_variables里取值导出，__session_variables包含step提取的变量
+            # 还有用例1调用用例2时，用例1定义的step和config变量
             if var_name not in self.__session_variables:
                 raise ParamsError(
                     f"failed to export variable {var_name} from session variables {self.__session_variables}"
@@ -163,12 +180,16 @@ class SessionRunner(object):
 
     def merge_step_variables(self, variables: VariablesMapping) -> VariablesMapping:
         # override variables
-        # step variables > extracted variables from previous steps
+        # step variables > extracted variables from previous steps包括用例里调用另一个用例
+        # 还包括用例里调用另一个用例，会把当前用例的config变量和step变量传递给另一个用例
+        # 用例A调用用例B，用例B step里的变量>用例A过来的变量>用例B的config变量
+        # __session_variables指上一步关联过来的变量，上一步可以是testcase也可以是上一个响应提取的变量
         variables = merge_variables(variables, self.__session_variables)
         # step variables > testcase config variables
         variables = merge_variables(variables, self.__config.variables)
 
         # parse variables
+        # 把step里的变量和config里解析过的变量再走一遍解析流程
         return self.parser.parse_variables(variables)
 
     def __run_step(self, step):
@@ -202,6 +223,8 @@ class SessionRunner(object):
                     )
 
         # save extracted variables to session variables
+        # 在用例1调用用例2的过程中，把用例2里导出变量更新到用例1的runner.__session_variables里
+        # step_result.export_vars来自用例2里的runner.__session_variables里，注意是不同的runner实例
         self.__session_variables.update(step_result.export_vars)
         # update testcase summary
         self.__step_results.append(step_result)
@@ -224,6 +247,7 @@ class SessionRunner(object):
             f"Start to run testcase: {self.__config.name}, TestCase ID: {self.case_id}"
         )
 
+        # 设置为 "DEBUG" 意味着所有的DEBUG、INFO、WARNING、ERROR和CRITICAL级别的日志都将被记录到指定的位置
         logger.add(self.__log_path, format=LOGGER_FORMAT, level="DEBUG")
         self.__start_at = time.time()
         try:

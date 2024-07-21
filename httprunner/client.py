@@ -116,7 +116,11 @@ class HttpSession(requests.Session):
     """
 
     def __init__(self):
+        # 使用 requests.Session 对象可以让你进行更高效的 HTTP 请求，因为它可以重用底层的 TCP 连接，
+        # 并且可以在多个请求之间保持某些参数（如 headers、cookies、auth 等）不变。
+        # 当你需要发送多个请求到同一个服务器时，使用 Session 对象是特别有用的，因为它可以减少 TCP 连接的建立和关闭的开销，从而提高性能
         super(HttpSession, self).__init__()
+        # 初始化请求模型request session data, including request, response, validators and stat data
         self.data = SessionData()
 
     def update_last_req_resp_record(self, resp_obj):
@@ -166,9 +170,11 @@ class HttpSession(requests.Session):
         :param cert: (optional)
             if String, path to ssl client cert file (.pem). If Tuple, ('cert', 'key') pair.
         """
+        # 这里data后面添加完请求信息干啥用了呢？赋值给step_request里的session_data了
         self.data = SessionData()
 
         # timeout default to 120 seconds
+        # setdefault，如果该键已经存在，则不会改变其值；如果该键不存在，则设置其值
         kwargs.setdefault("timeout", 120)
 
         # set stream to True, in order to get client/server IP/Port
@@ -176,6 +182,7 @@ class HttpSession(requests.Session):
 
         start_timestamp = time.time()
         response = self._send_request_safe_mode(method, url, **kwargs)
+        # 以ms为单位，四舍五入保留两位小数
         response_time_ms = round((time.time() - start_timestamp) * 1000, 2)
 
         try:
@@ -199,19 +206,25 @@ class HttpSession(requests.Session):
 
         # record the consumed time
         self.data.stat.response_time_ms = response_time_ms
+        # http请求花费的时间，ms
         self.data.stat.elapsed_ms = response.elapsed.microseconds / 1000.0
         self.data.stat.content_size = content_size
 
         # record request and response histories, include 30X redirection
+        # 创建一个包含所有重定向响应（包括最终响应）的列表
         response_list = response.history + [response]
+        # 记录每个请求的请求模型和响应模型内容
         self.data.req_resps = [
             get_req_resp_record(resp_obj) for resp_obj in response_list
         ]
 
         try:
+            # 检查HTTP响应的状态码，如果响应状态码表示发生了错误（即不是200-299范围内的状态码），则抛出一个HTTPError异常
             response.raise_for_status()
+        # 异常时执行代码
         except RequestException as ex:
             logger.error(f"{str(ex)}")
+        # 没有异常时执行代码
         else:
             logger.info(
                 f"status_code: {response.status_code}, "
@@ -228,11 +241,15 @@ class HttpSession(requests.Session):
         """
         try:
             return requests.Session.request(self, method, url, **kwargs)
+        # 如果 URL 缺少模式（如 http:// 或 https://）、模式无效或 URL 本身无效
         except (MissingSchema, InvalidSchema, InvalidURL):
             raise
         except RequestException as ex:
+            # 创建一个 ApiResponse 对象来封装错误信息。这个对象包含异常、一个状态码
             resp = ApiResponse()
             resp.error = ex
             resp.status_code = 0  # with this status_code, content returns None
+            # Request(method, url).prepare() 创建了一个准备好的请求对象，但它并没有实际发送。
+            # 它只是根据给定的方法和 URL 创建了一个请求对象
             resp.request = Request(method, url).prepare()
             return resp

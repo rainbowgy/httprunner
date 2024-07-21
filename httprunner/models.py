@@ -8,6 +8,7 @@ Name = Text
 Url = Text
 BaseUrl = Union[HttpUrl, Text]
 VariablesMapping = Dict[Text, Any]
+# 定义类型别名，Callable表示可调用的对象，如函数、方法、类
 FunctionsMapping = Dict[Text, Callable]
 Headers = Dict[Text, Text]
 Cookies = Dict[Text, Text]
@@ -18,6 +19,7 @@ Validators = List[Dict]
 Env = Dict[Text, Any]
 
 
+# 该类继承自 Text 和 Enum
 class MethodEnum(Text, Enum):
     GET = "GET"
     POST = "POST"
@@ -157,7 +159,7 @@ class TStep(BaseModel):
     extract: VariablesMapping = {}
     # used to export session variables from referenced testcase
     export: Export = []
-    validators: Validators = Field([], alias="validate")
+    validators: Validators = Field([], alias="validate")  # validators，类型Validators，别名validate，默认值是空列表
     validate_script: List[Text] = []
     retry_times: int = 0
     retry_interval: int = 0  # sec
@@ -171,12 +173,16 @@ class TestCase(BaseModel):
 
 
 class ProjectMeta(BaseModel):
+    # 在Pydantic中，BaseModel是一个核心概念，用于定义数据模型和验证输入数据。
+    # 通过定义数据模型并使用BaseModel进行验证，开发者可以减少手动验证代码的编写，提高代码的可维护性。
+    # BaseModel的类型提示也使得代码更加清晰和易于理解
     debugtalk_py: Text = ""  # debugtalk.py file content
     debugtalk_path: Text = ""  # debugtalk.py file path
     dot_env_path: Text = ""  # .env file path
     functions: FunctionsMapping = {}  # functions defined in debugtalk.py
     env: Env = {}
     RootDir: Text = (
+        # 它将输出你的Python脚本当前正在运行的目录的完整路径，即当前工作目录
         os.getcwd()
     )  # project root directory (ensure absolute), the path debugtalk.py located
 
@@ -260,6 +266,12 @@ class StepResult(BaseModel):
 StepResult.update_forward_refs()
 
 
+# 这段代码定义了一个名为 IStep 的接口（在 Python 中通常通过定义一个包含抽象方法的类来实现接口的概念）。
+# 这个接口定义了一些方法，但没有为它们提供具体的实现，而是抛出了 NotImplementedError 异常。
+# 这意味着任何继承自 IStep 的子类都需要实现这些方法。
+# 在 Python 中并没有像 Java 或 C# 那样的显式接口关键字
+# Python 的接口是通过抽象基类（使用 abc 模块中的 ABC 和 @abstractmethod 装饰器）
+# 或像这里这样通过抛出 NotImplementedError 来实现的。
 class IStep(object):
     def name(self) -> str:
         raise NotImplementedError

@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from httprunner import builtin, exceptions, utils
 from httprunner.models import ProjectMeta, TestCase
 
+# ruuner里初始化的self__project_meta就是这里的project_meta，使用load_project_meta生成的
 project_meta: Union[ProjectMeta, None] = None
 
 
@@ -107,10 +108,13 @@ def load_dot_env_file(dot_env_path: Text) -> Dict:
     with open(dot_env_path, mode="rb") as fp:
         for line in fp:
             # maxsplit=1
+            # 去除每行两边的空白字符
             line = line.strip()
+            # 如果行为空或以 # 开头，则跳过。
             if not len(line) or line.startswith(b"#"):
                 continue
             if b"=" in line:
+                # 1代表maxsplit，只拆分一次，.split(b"=")将会按字节=进行拆分，b是字节的意思，不会去处理普通unicode字符"="
                 variable, value = line.split(b"=", 1)
             elif b":" in line:
                 variable, value = line.split(b":", 1)
@@ -121,6 +125,7 @@ def load_dot_env_file(dot_env_path: Text) -> Dict:
                 variable.strip().decode("utf-8")
             ] = value.strip().decode("utf-8")
 
+    # 设置环境变量到当前Python进程的环境中，这些环境变量只会在当前进程及其子进程中生效，不会影响父进程或其他并行的进程
     utils.set_os_environ(env_variables_mapping)
     return env_variables_mapping
 
@@ -149,12 +154,16 @@ def load_csv_file(csv_file: Text) -> List[Dict]:
         ]
 
     """
+    # 判断是否是绝对路径
     if not os.path.isabs(csv_file):
         global project_meta
         if project_meta is None:
             raise exceptions.MyBaseFailure("load_project_meta() has not been called!")
 
         # make compatible with Windows/Linux
+        # 例如，如果 csv_file 是 "folder1/folder2/file.csv"，则分割后的列表将是 ['folder1', 'folder2', 'file.csv']
+        # * 操作符可以用来“展开”一个列表，将其元素作为独立的参数传递给一个函数。在这里，它将分割后的列表传递给 os.path.join 函数，
+        # 就好像你直接传递了多个参数一样
         csv_file = os.path.join(project_meta.RootDir, *csv_file.split("/"))
 
     if not os.path.isfile(csv_file):
@@ -164,8 +173,10 @@ def load_csv_file(csv_file: Text) -> List[Dict]:
     csv_content_list = []
 
     with open(csv_file, encoding="utf-8") as csvfile:
+        # 从CSV文件中读取数据，并将每一行数据作为一个字典返回，其中字典的键是CSV文件的列标题
         reader = csv.DictReader(csvfile)
         for row in reader:
+            # row['username'],row['password']
             csv_content_list.append(row)
 
     return csv_content_list
@@ -229,10 +240,15 @@ def load_module_functions(module) -> Dict[Text, Callable]:
     """
     module_functions = {}
 
+    # 返回一个包含模块所有属性和方法的键值对的可迭代对象
+    # vars(module)返回给定模块的__dict__属性，它是一个包含模块所有属性和方法的字典。
+    # items()方法用于获取字典中的所有键值对，并以元组的形式返回一个可迭代的对象，item是callable类型
     for name, item in vars(module).items():
+        # 判断item类型是否是function类型
         if isinstance(item, types.FunctionType):
             module_functions[name] = item
-
+    # {'get_httprunner_version': <function get_httprunner_version at 0x1064bdbc0>,
+    # 'sum_two': <function sum_two at 0x1064bd6c0>}
     return module_functions
 
 
@@ -256,8 +272,10 @@ def locate_file(start_path: Text, file_name: Text) -> Text:
         exceptions.FileNotFound: If failed to locate file.
 
     """
+    # 如果是文件路径且存在
     if os.path.isfile(start_path):
         start_dir_path = os.path.dirname(start_path)
+    # 如果是文件目录，且存在
     elif os.path.isdir(start_path):
         start_dir_path = start_path
     else:
@@ -265,13 +283,14 @@ def locate_file(start_path: Text, file_name: Text) -> Text:
 
     file_path = os.path.join(start_dir_path, file_name)
     if os.path.isfile(file_path):
-        # ensure absolute
+        # ensure absolute 返回绝对路径
         return os.path.abspath(file_path)
 
     # system root dir
     # Windows, e.g. 'E:\\'
     # Linux/Darwin, '/'
     parent_dir = os.path.dirname(start_dir_path)
+    # 如果找到系统根目录仍然找不到debugtalk.py文件，抛出异常，调用这个方法的程序需要捕捉异常处理异常，或者继续向上抛出异常
     if parent_dir == start_dir_path:
         raise exceptions.FileNotFound(f"{file_name} not found in {start_path}")
 
@@ -310,17 +329,20 @@ def locate_project_root_directory(test_path: Text) -> Tuple[Text, Text]:
 
     """
 
+    # 如果path是相对路径，先转换成绝对路径
     def prepare_path(path):
         if not os.path.exists(path):
             err_msg = f"path not exist: {path}"
             logger.error(err_msg)
             raise exceptions.FileNotFound(err_msg)
-
+        # 如果path不是绝对路径
         if not os.path.isabs(path):
+            # os.getcwd()获取当前工作目录
             path = os.path.join(os.getcwd(), path)
 
         return path
 
+    # test_path='/Users/guoyan/work/pythonProject/httprunner/examples/postman_echo/request_methods/request_with_variables_test.py'
     test_path = prepare_path(test_path)
 
     # locate debugtalk.py file
@@ -350,12 +372,17 @@ def load_debugtalk_functions() -> Dict[Text, Callable]:
     """
     # load debugtalk.py module
     try:
+        # 因为前面我们把debugtalk所在目录作为根目录添加进了python解释器路径里，所以可以直接debugtalk导入
+        # 动态导入不同于文件开头的静态导入，它允许你根据需要在运行时加载模块，而不是在程序启动时确定所有的导入。
+        # 这对于一些动态的、可配置的导入场景非常有用。
         imported_module = importlib.import_module("debugtalk")
     except Exception as ex:
         logger.error(f"error occurred in debugtalk.py: {ex}")
         sys.exit(1)
 
     # reload to refresh previously loaded module
+    # 当你对一个模块进行修改后，如果想要立即生效而不必重新启动Python解释器
+    # 这个函数可能会引发一些副作用，因为它会在运行时改变模块的状态，可能会影响到其他代码的执行。
     imported_module = importlib.reload(imported_module)
     return load_module_functions(imported_module)
 
@@ -374,25 +401,35 @@ def load_project_meta(test_path: Text, reload: bool = False) -> ProjectMeta:
             environments and debugtalk.py functions.
 
     """
-    global project_meta
+    global project_meta  # 声明这里的变量不是重新定义的函数内局部变量，而是直接用的模块loader.py的全局变量
+    # project_meta默认只设置一次，除非reload是true
     if project_meta and (not reload):
         return project_meta
 
-    project_meta = ProjectMeta()
+    project_meta = ProjectMeta()  # 项目初始化模型，包括环境变量路径和内容，debugtalk.py路径和内容，debugtalk.py里的function,
+    # 还有项目根目录绝对路径，以debugtalk所在目录为项目根目录project_root_directory，没有则是当前项目工作目录
 
     if not test_path:
         return project_meta
 
+    # 从用例*_test文件所在目录不停向上直到系统根目录是否存在debugtalk.py文件，以debugtalk所在目录为项目根目录project_root_directory
+    # test_path='/Users/guoyan/work/pythonProject/httprunner/examples/postman_echo/request_methods/request_with_variables_test.py'
+    # debugtalk_path='/Users/guoyan/work/pythonProject/httprunner/examples/postman_echo/debugtalk.py'
+    # project_root_directory='/Users/guoyan/work/pythonProject/httprunner/examples/postman_echo'
+    # 如果debugtalk.py=none,project_root_directory是当前项目工作目录
     debugtalk_path, project_root_directory = locate_project_root_directory(test_path)
 
     # add project RootDir to sys.path
+    # 注意是sys.path不是os.path，是Python 解释器的搜索路径，索引0确保该路径优先于其他路径
     sys.path.insert(0, project_root_directory)
 
     # load .env file
     # NOTICE:
     # environment variable maybe loaded in debugtalk.py
     # thus .env file should be loaded before loading debugtalk.py
+    # 在自定义的项目根目录下找.env文件，找不到返回{}
     dot_env_path = os.path.join(project_root_directory, ".env")
+    # 返回环境变量键值对
     dot_env = load_dot_env_file(dot_env_path)
     if dot_env:
         project_meta.env = dot_env
@@ -429,4 +466,4 @@ def convert_relative_project_root_dir(abs_path: Text) -> Text:
             f"project_meta.RootDir: {_project_meta.RootDir}"
         )
 
-    return abs_path[len(_project_meta.RootDir) + 1 :]
+    return abs_path[len(_project_meta.RootDir) + 1:]
